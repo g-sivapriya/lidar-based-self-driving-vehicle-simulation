@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lidar Traffic Simulation</title>
+  <style>
+    body { margin: 0; background: #ffffff; }
+    canvas { display: block; margin: auto; background: #ffffff; }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas" width="1000" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// 🛣️ Lanes
+const lanes = [220, 300, 380];
+
+// 🚗 Cars
+let cars = [];
+
+function spawnCar() {
+  let lane = lanes[Math.floor(Math.random()*lanes.length)];
+  cars.push({
+    x: 0,
+    y: lane,
+    speed: 2,
+    baseSpeed: 2,
+    lane: lane,
+    color: `hsl(${Math.random()*360},100%,50%)`
+  });
+}
+setInterval(spawnCar, 1200);
+
+// 🧱 Obstacles
+const obstacles = [
+  {x:400,y:220,w:80,h:40},
+  {x:650,y:300,w:80,h:40},
+  {x:850,y:380,w:80,h:40}
+];
+
+// Draw road
+function drawRoad() {
+  ctx.fillStyle = "#f5f5f5";
+  ctx.fillRect(0,150,1000,300);
+
+  ctx.strokeStyle = "#999";
+  ctx.setLineDash([15,15]);
+
+  lanes.forEach(y => {
+    ctx.beginPath();
+    ctx.moveTo(0,y);
+    ctx.lineTo(1000,y);
+    ctx.stroke();
+  });
+
+  ctx.setLineDash([]);
+}
+
+// Draw obstacles
+function drawObstacles() {
+  ctx.fillStyle = "gray";
+  obstacles.forEach(o => {
+    ctx.fillRect(o.x,o.y,o.w,o.h);
+  });
+}
+
+// Draw car
+function drawCar(car) {
+  ctx.fillStyle = car.color;
+  ctx.fillRect(car.x - 15, car.y - 8, 30, 16);
+}
+
+// 📡 LIDAR FUNCTION
+function drawLidar(car) {
+
+  let nearby = false;
+
+  // Check if anything is near
+  obstacles.forEach(o => {
+    if (Math.hypot(car.x - o.x, car.y - o.y) < 120) nearby = true;
+  });
+
+  cars.forEach(other => {
+    if (other !== car && Math.hypot(car.x - other.x, car.y - other.y) < 80)
+      nearby = true;
+  });
+
+  if (!nearby) return;
+
+  // Cast rays
+  for (let angle = 0; angle < 360; angle += 20) {
+
+    let rad = angle * Math.PI/180;
+
+    for (let d = 0; d < 120; d += 2) {
+
+      let rx = car.x + Math.cos(rad) * d;
+      let ry = car.y + Math.sin(rad) * d;
+
+      let hit = false;
+
+      // Check obstacles
+      for (let o of obstacles) {
+        if (rx > o.x && rx < o.x+o.w &&
+            ry > o.y && ry < o.y+o.h) {
+          hit = true;
+        }
+      }
+
+      // Check other vehicles
+      for (let other of cars) {
+        if (other !== car &&
+            Math.hypot(rx-other.x, ry-other.y) < 10) {
+          hit = true;
+        }
+      }
+
+      if (hit) {
+        let color = d > 80 ? "green" : d > 40 ? "yellow" : "red";
+
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(car.x, car.y);
+        ctx.lineTo(rx, ry);
+        ctx.stroke();
+        break;
+      }
+    }
+  }
+}
+
+// 🚗 Vehicle avoidance
+function avoidVehicles(car) {
+  let dyAdjust = 0;
+  let speedFactor = 1;
+
+  cars.forEach(other => {
+    if (other === car) return;
+
+    let dx = other.x - car.x;
+    let dy = other.y - car.y;
+    let dist = Math.hypot(dx, dy);
+
+    if (dx > 0 && dx < 100 && Math.abs(dy) < 25) {
+      speedFactor = 0.4;
+    }
+
+    if (dist < 60) {
+      dyAdjust -= dy * 0.05;
+    }
+  });
+
+  return {dyAdjust, speedFactor};
+}
+
+// 🧱 Obstacle avoidance
+function avoidObstacles(car) {
+  let dyAdjust = 0;
+
+  obstacles.forEach(o => {
+    let frontDist = o.x - car.x;
+
+    if (frontDist > 0 && frontDist < 120) {
+      let verticalDist = car.y - (o.y + o.h/2);
+
+      if (Math.abs(verticalDist) < 50) {
+        if (verticalDist > 0) dyAdjust += 2;
+        else dyAdjust -= 2;
+      }
+    }
+  });
+
+  return dyAdjust;
+}
+
+// Update car
+function updateCar(car) {
+  let {dyAdjust, speedFactor} = avoidVehicles(car);
+  let obstacleAdjust = avoidObstacles(car);
+
+  car.speed = car.baseSpeed * speedFactor;
+  car.x += car.speed;
+
+  car.y += dyAdjust + obstacleAdjust;
+  car.y += (car.lane - car.y) * 0.03;
+
+  car.y = Math.max(180, Math.min(420, car.y));
+}
+
+// Loop
+function animate() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  drawRoad();
+  drawObstacles();
+
+  cars.forEach(car => {
+    updateCar(car);
+    drawCar(car);
+    drawLidar(car); // 📡 Lidar added here
+  });
+
+  cars = cars.filter(car => car.x < canvas.width + 50);
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+
+</body>
+</html>
